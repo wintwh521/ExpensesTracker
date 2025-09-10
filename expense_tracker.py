@@ -83,7 +83,14 @@ st.title("💰 Trip Expense Tracker")
 filename = st.text_input("Enter expense file name", "trip_expenses.json")
 expenses = load_expenses(filename)
 
-# Add expense section (no form → instant re-render)
+# 🔼 Upload JSON
+uploaded_file = st.file_uploader("Upload an existing expenses JSON", type=["json"])
+if uploaded_file is not None:
+    expenses = json.load(uploaded_file)
+    save_expenses(filename, expenses)
+    st.success("✅ Expenses loaded from uploaded file!")
+
+# ➕ Add expense section
 st.subheader("➕ Add Expense")
 payer = st.text_input("Who paid?")
 amount = st.number_input("How much?", min_value=0.0, format="%.2f")
@@ -115,13 +122,13 @@ if st.button("Add Expense"):
         save_expenses(filename, expenses)
         st.success("✅ Expense added!")
 
-# Show balances
+# 📊 Show balances
 if st.button("📊 Show Final Balances"):
     if not expenses:
         st.warning("⚠️ No expenses recorded yet.")
     else:
         balances = calculate_balances(expenses)
-        
+
         # Add icon for Final Balances
         st.subheader("💹 Final Balances")
         for person, balance in balances.items():
@@ -140,3 +147,11 @@ if st.button("📊 Show Final Balances"):
                 st.write(f"➡️ {s}")
         else:
             st.write("✅ Everyone is settled up!")
+
+# 🔽 Download JSON
+st.download_button(
+    label="💾 Download expenses JSON",
+    data=json.dumps(expenses, indent=4),
+    file_name=filename if filename.endswith(".json") else filename + ".json",
+    mime="application/json"
+)
