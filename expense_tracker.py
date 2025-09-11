@@ -29,22 +29,39 @@ def get_all_people(expenses):
     return list(people)
 
 def calculate_balances(expenses):
+
+    """Calculate net balances after sanitizing expenses (supports list or dict participants)."""
+    expenses = sanitize_all(expenses)  # ensure data is normalized
+
     people = get_all_people(expenses)
     balances = {person: 0 for person in people}
 
     for e in expenses:
         payer = e["payer"]
+        amount = float(e.get("amount", 0) or 0)
+        participants = e["participants"]
 
-        if isinstance(e["participants"], dict):  # custom split
-            for p, share in e["participants"].items():
-                balances[p] -= share
-            balances[payer] += e["amount"]
+        if isinstance(participants, dict):
+            # participants already normalized to absolute shares summing to amount
+            for p, share in participants.items():
+                balances[p] = balances.get(p, 0.0) - float(share)
+            balances[payer] = balances.get(payer, 0.0) + amount
 
-        else:  # equal split
-            share = e["amount"] / len(e["participants"])
-            for p in e["participants"]:
-                balances[p] -= share
-            balances[payer] += e["amount"]
+        else:  # list -> equal split
+            if len(participants) == 0:
+                # nothing to split; assign full to payer (no change)
+                balances[payer] = balances.get(payer, 0.0) + amount
+            else:
+                share = float(amount) / len(participants)
+                for p in participants:
+                    balances[p] = balances.get(p, 0.0) - share
+                balances[payer] = balances.get(payer, 0.0) + amount
+
+        # round small floats and remove near-zero noise
+    for k in list(balances.keys()):
+        balances[k] = round(balances[k], 2)
+        if abs(balances[k]) < 0.01:
+            balances[k] = 0.0
 
     return balances
 
@@ -62,11 +79,28 @@ def suggest_payments(balances):
         debtor, debt = debtors[i]
         creditor, credit = creditors[j]
 
-        payment = min(debt, credit)
+        # defensive: never create self-payment
+        if debtor == creditor:
+            # move the smaller side forward
+            if debt > credit:
+                j += 1
+            else:
+                i += 1
+            continue
+
+        payment = round(min(debt, credit), 2)
+        if payment < 0.01:
+            # negligible, skip
+            if debt <= credit:
+                i += 1
+            else:
+                j += 1
+            continue
+
         settlements.append(f"{debtor} should pay {creditor} {payment:.2f}")
 
-        debtors[i] = (debtor, debt - payment)
-        creditors[j] = (creditor, credit - payment)
+        debtors[i] = (debtor, round(debt - payment, 2))
+        creditors[j] = (creditor, round(credit - payment, 2))
 
         if debtors[i][1] == 0:
             i += 1
@@ -74,6 +108,82 @@ def suggest_payments(balances):
             j += 1
 
     return settlements
+
+
+# ---- new helpers to add ----
+def sanitize_expense(e):
+    """Clean up one expense record and normalize participant shares if needed."""
+    # Ensure keys exist
+    payer = str(e.get("payer", "")).strip()
+    amount = float(e.get("amount", 0) or 0)
+    participants = e.get("participants", [])
+
+    # normalize payer
+    e["payer"] = payer
+
+    # Case: participants is list (equal split)
+    if isinstance(participants, list):
+        cleaned = [p.strip() for p in participants if p and str(p).strip()]
+        e["participants"] = cleaned
+
+    # Case: participants is dict (custom share)
+    elif isinstance(participants, dict):
+        cleaned = {}
+        for k, v in participants.items():
+            name = str(k).strip()
+            try:
+                share = float(v)
+            except Exception:
+                share = 0.0
+            if name:
+                cleaned[name] = share
+
+        total = sum(cleaned.values())
+        # if total is zero (bad input) -> fallback to equal split among names
+        if total == 0 and cleaned:
+            per = round(amount / len(cleaned), 2)
+            cleaned = {n: per for n in cleaned.keys()}
+        # if total differs from amount by more than small tolerance -> scale shares proportionally
+        elif abs(total - amount) > 0.01 and total > 0:
+            factor = amount / total
+            # keep two decimal precision after scaling
+            cleaned = {n: round(s * factor, 2) for n, s in cleaned.items()}
+            # fix rounding remainder by adjusting first entry
+            scaled_sum = sum(cleaned.values())
+            diff = round(amount - scaled_sum, 2)
+            if abs(diff) >= 0.01:
+                first_key = next(iter(cleaned.keys()))
+                cleaned[first_key] = round(cleaned[first_key] + diff, 2)
+
+        e["participants"] = cleaned
+
+    else:
+        # unknown format -> make empty participants list
+        e["participants"] = []
+
+    return e
+
+
+def sanitize_all(expenses):
+    """Sanitize all expenses in list (use when loading or before calculating)."""
+    cleaned = []
+    for e in expenses:
+        try:
+            cleaned.append(sanitize_expense(e.copy()))
+        except Exception:
+            # skip broken entry but keep running
+            continue
+    return cleaned
+
+
+# -------------------------------
+# Danger zone
+# -------------------------------
+def clear_expenses(filename):
+    """Clear all expenses (reset file to empty list)."""
+    with open(filename, "w") as f:
+        json.dump([], f, indent=4)
+
 
 # -------------------------------
 # Streamlit UI
@@ -122,6 +232,7 @@ if st.button("Add Expense"):
         save_expenses(filename, expenses)
         st.success("✅ Expense added!")
 
+
 # 📊 Show balances
 if st.button("📊 Show Final Balances"):
     if not expenses:
@@ -155,3 +266,28 @@ st.download_button(
     file_name=filename if filename.endswith(".json") else filename + ".json",
     mime="application/json"
 )
+
+
+# -------------------------------
+# Clear Expenses with confirmation
+# -------------------------------
+st.subheader("⚠️ Danger Zone")
+
+if "confirm_clear" not in st.session_state:
+    st.session_state.confirm_clear = False
+
+if not st.session_state.confirm_clear:
+    if st.button("🗑️ Clear All Expenses"):
+        st.session_state.confirm_clear = True
+else:
+    st.warning("Are you sure you want to clear ALL expenses? This cannot be undone.")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Yes, clear everything"):
+            clear_expenses(filename)
+            st.success("All expenses cleared!")
+            st.session_state.confirm_clear = False
+    with col2:
+        if st.button("❌ Cancel"):
+            st.info("Cancelled. Your expenses are safe.")
+            st.session_state.confirm_clear = False
