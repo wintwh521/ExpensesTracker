@@ -281,7 +281,7 @@ if "confirm_clear" not in st.session_state:
 if not st.session_state.confirm_clear:
     if st.button("🗑️ Clear All Expenses"):
         st.session_state.confirm_clear = True
-        st.experimental_rerun()  # <- immediately show confirmation
+        st.rerun()  # <- immediately show confirmation
 else:
     st.warning("Are you sure? This will delete ALL expenses and cannot be undone.")
     col1, col2 = st.columns(2)
@@ -291,9 +291,9 @@ else:
             clear_expenses("trip_expenses.json")
             st.success("All expenses cleared!")
             st.session_state.confirm_clear = False
-            st.experimental_rerun()
+            st.rerun()
 
     with col2:
         if st.button("❌ Cancel"):
             st.session_state.confirm_clear = False
-            st.experimental_rerun()
+            st.rerun()
