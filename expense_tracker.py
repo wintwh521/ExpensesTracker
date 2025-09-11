@@ -273,21 +273,27 @@ st.download_button(
 # -------------------------------
 st.subheader("⚠️ Danger Zone")
 
+# initialize state if missing
 if "confirm_clear" not in st.session_state:
     st.session_state.confirm_clear = False
 
+# First button → toggle confirmation mode
 if not st.session_state.confirm_clear:
     if st.button("🗑️ Clear All Expenses"):
         st.session_state.confirm_clear = True
+        st.experimental_rerun()  # <- immediately show confirmation
 else:
-    st.warning("Are you sure you want to clear ALL expenses? This cannot be undone.")
+    st.warning("Are you sure? This will delete ALL expenses and cannot be undone.")
     col1, col2 = st.columns(2)
+
     with col1:
         if st.button("✅ Yes, clear everything"):
-            clear_expenses(filename)
+            clear_expenses("trip_expenses.json")
             st.success("All expenses cleared!")
             st.session_state.confirm_clear = False
+            st.experimental_rerun()
+
     with col2:
         if st.button("❌ Cancel"):
-            st.info("Cancelled. Your expenses are safe.")
             st.session_state.confirm_clear = False
+            st.experimental_rerun()
