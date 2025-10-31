@@ -197,82 +197,76 @@ if uploaded_file is not None:
 # ------------------------
 st.subheader("➕ Add Expense")
 
-# initialize session keys for form fields so clearing works cleanly
-if "add_payer" not in st.session_state:
-    st.session_state.add_payer = ""
-if "add_amount" not in st.session_state:
-    st.session_state.add_amount = 0.0
-if "add_description" not in st.session_state:
-    st.session_state.add_description = ""
-if "add_split_type" not in st.session_state:
-    st.session_state.add_split_type = "Equal"
-if "participants_input" not in st.session_state:
-    st.session_state.participants_input = ""
+# form field states
+if "form_data" not in st.session_state:
+    st.session_state.form_data = {
+        "payer": "",
+        "amount": 0.0,
+        "description": "",
+        "split_type": "Equal",
+        "participants_csv": "",
+        "participants_custom": {}
+    }
 
-with st.form("add_expense_form", clear_on_submit=False):
-    payer = st.text_input("Who paid?", value=st.session_state.add_payer, key="ui_payer")
-    amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=st.session_state.add_amount, key="ui_amount")
-    description = st.text_input("Description?", value=st.session_state.add_description, key="ui_description")
-    split_type = st.radio("Split type", ["Equal", "Custom"], index=0 if st.session_state.add_split_type=="Equal" else 1, key="ui_split")
+form_data = st.session_state.form_data
 
-    # dynamic participants area
-    participants = {}
-    participants_list = []
+payer = st.text_input("Who paid?", value=form_data["payer"], key="payer_input")
+amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=form_data["amount"], key="amount_input")
+description = st.text_input("Description?", value=form_data["description"], key="desc_input")
+split_type = st.radio("Split type", ["Equal", "Custom"], index=0 if form_data["split_type"] == "Equal" else 1)
 
-    if split_type == "Equal":
-        participants_input = st.text_input("Participants (comma separated)", value=st.session_state.participants_input, key="ui_participants_csv")
-        participants_list = [p.strip() for p in participants_input.split(",") if p.strip()]
+form_data["payer"] = payer
+form_data["amount"] = amount
+form_data["description"] = description
+form_data["split_type"] = split_type
+
+participants = {}
+
+if split_type == "Equal":
+    csv = st.text_input("Participants (comma separated)", value=form_data["participants_csv"], key="participants_csv_input")
+    form_data["participants_csv"] = csv
+    participants_list = [p.strip() for p in csv.split(",") if p.strip()]
+else:
+    num_custom = st.number_input("How many participants?", min_value=1, step=1, key="num_custom_input", value=len(form_data["participants_custom"]) or 1)
+    for i in range(int(num_custom)):
+        name = st.text_input(f"Participant {i+1} name", key=f"name_{i}")
+        share = st.number_input(f"Amount for {name or f'P{i+1}'}", min_value=0.0, format="%.2f", key=f"share_{i}")
+        if name:
+            participants[name.strip()] = float(share)
+    form_data["participants_custom"] = participants
+    participants_list = list(participants.keys())
+
+# submit button (separate to keep UI reactive)
+if st.button("➕ Add Expense"):
+    if not payer or amount <= 0:
+        st.warning("⚠️ Please fill in payer and positive amount.")
     else:
-        # custom: let user choose how many then show inputs and retain via unique keys
-        num_custom = st.number_input("How many participants?", min_value=1, step=1, key="ui_num_custom", value=st.session_state.get("ui_num_custom", 1))
-        for i in range(int(num_custom)):
-            name_key = f"ui_name_{i}"
-            share_key = f"ui_share_{i}"
-            name = st.text_input(f"Participant {i+1} name", key=name_key)
-            share = st.number_input(f"Amount for {name or f'P{i+1}'}", min_value=0.0, format="%.2f", key=share_key)
-            if name:
-                participants[name.strip()] = float(share)
-
-    submitted = st.form_submit_button("➕ Add Expense")
-
-    if submitted:
-        # validation
-        if not payer or amount <= 0:
-            st.warning("⚠️ Please fill in payer and positive amount.")
+        if split_type == "Equal" and not participants_list:
+            st.warning("⚠️ Please fill in participants for Equal split.")
+        elif split_type == "Custom" and not participants:
+            st.warning("⚠️ Please fill in participant names and amounts for Custom split.")
         else:
-            if split_type == "Equal" and not participants_list:
-                st.warning("⚠️ Please fill in participants (comma separated) for Equal split.")
-            elif split_type == "Custom" and not participants:
-                st.warning("⚠️ Please fill in participant names and amounts for Custom split.")
-            else:
-                # build expense
-                if split_type == "Equal":
-                    expense = {
-                        "payer": payer.strip(),
-                        "amount": float(amount),
-                        "description": description.strip(),
-                        "participants": participants_list
-                    }
-                else:
-                    expense = {
-                        "payer": payer.strip(),
-                        "amount": float(amount),
-                        "description": description.strip(),
-                        "participants": participants
-                    }
+            expense = {
+                "payer": payer.strip(),
+                "amount": float(amount),
+                "description": description.strip(),
+                "participants": participants if split_type == "Custom" else participants_list
+            }
+            st.session_state.expenses.append(expense)
+            save_expenses(filename, st.session_state.expenses)
+            st.success("✅ Expense added!")
 
-                st.session_state.expenses.append(expense)
-                save_expenses(filename, st.session_state.expenses)
-                st.success("✅ Expense added!")
+            # reset form
+            st.session_state.form_data = {
+                "payer": "",
+                "amount": 0.0,
+                "description": "",
+                "split_type": "Equal",
+                "participants_csv": "",
+                "participants_custom": {}
+            }
+            st.rerun()
 
-                # remember input values in session (optional)
-                st.session_state.add_payer = ""
-                st.session_state.add_amount = 0.0
-                st.session_state.add_description = ""
-                st.session_state.add_split_type = "Equal"
-                st.session_state.participants_input = ""
-                # optionally clear the UI form fields by rerunning with cleared session values
-                st.experimental_rerun()
 
 # ------------------------
 # Show balances
