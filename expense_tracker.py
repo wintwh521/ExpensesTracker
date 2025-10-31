@@ -8,16 +8,22 @@ import pandas as pd
 # -------------------------------
 def load_expenses(filename):
     if os.path.exists(filename):
-        with open(filename, "r") as f:
-            return json.load(f)
+        try:
+            with open(filename, "r") as f:
+                return json.load(f)
+        except Exception:
+            return []
     return []
 
 def save_expenses(filename, expenses):
-    with open(filename, "w") as f:
-        json.dump(expenses, f, indent=4)
+    try:
+        with open(filename, "w") as f:
+            json.dump(expenses, f, indent=4)
+    except Exception as ex:
+        st.error(f"Failed to save file: {ex}")
 
 # -------------------------------
-# Expense Logic
+# Expense Logic (unchanged)
 # -------------------------------
 def get_all_people(expenses):
     people = set()
@@ -98,7 +104,7 @@ def suggest_payments(balances):
 
 
 # -------------------------------
-# Sanitize helpers
+# Sanitize helpers (unchanged)
 # -------------------------------
 def sanitize_expense(e):
     payer = str(e.get("payer", "")).strip()
@@ -156,7 +162,7 @@ def clear_expenses(filename):
 
 
 # -------------------------------
-# Streamlit UI (replacement)
+# Streamlit UI (Option 1: reactive)
 # -------------------------------
 st.title("💰 Trip Expense Tracker")
 
@@ -175,9 +181,29 @@ else:
         if os.path.exists(filename):
             st.session_state.expenses = load_expenses(filename)
         else:
-            # if new filename doesn't exist yet, keep current expenses (user may want new file)
             st.session_state.expenses = st.session_state.expenses or []
         st.session_state.last_filename = filename
+
+# initialize UI state keys (to allow clearing)
+ui_keys = {
+    "payer": "ui_payer",
+    "amount": "ui_amount",
+    "description": "ui_description",
+    "split_type": "ui_split",
+    "equal_csv": "ui_equal_csv",
+    "num_custom": "ui_num_custom"
+}
+for k in ui_keys.values():
+    if k not in st.session_state:
+        # default values
+        if k == "ui_amount":
+            st.session_state[k] = 0.0
+        elif k == "ui_split":
+            st.session_state[k] = "Equal"
+        elif k == "ui_num_custom":
+            st.session_state[k] = 1
+        else:
+            st.session_state[k] = ""
 
 expenses = st.session_state.expenses
 
@@ -193,52 +219,42 @@ if uploaded_file is not None:
         st.error(f"Failed to load uploaded JSON: {ex}")
 
 # ------------------------
-# Add Expense using a form
+# Add Expense (reactive)
 # ------------------------
 st.subheader("➕ Add Expense")
 
-# form field states
-if "form_data" not in st.session_state:
-    st.session_state.form_data = {
-        "payer": "",
-        "amount": 0.0,
-        "description": "",
-        "split_type": "Equal",
-        "participants_csv": "",
-        "participants_custom": {}
-    }
-
-form_data = st.session_state.form_data
-
-payer = st.text_input("Who paid?", value=form_data["payer"], key="payer_input")
-amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=form_data["amount"], key="amount_input")
-description = st.text_input("Description?", value=form_data["description"], key="desc_input")
-split_type = st.radio("Split type", ["Equal", "Custom"], index=0 if form_data["split_type"] == "Equal" else 1)
-
-form_data["payer"] = payer
-form_data["amount"] = amount
-form_data["description"] = description
-form_data["split_type"] = split_type
+payer = st.text_input("Who paid?", value=st.session_state["ui_payer"], key="ui_payer")
+amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=st.session_state["ui_amount"], key="ui_amount")
+description = st.text_input("Description?", value=st.session_state["ui_description"], key="ui_description")
+split_type = st.radio("Split type", ["Equal", "Custom"], index=0 if st.session_state["ui_split"] == "Equal" else 1, key="ui_split")
 
 participants = {}
+participants_list = []
 
 if split_type == "Equal":
-    csv = st.text_input("Participants (comma separated)", value=form_data["participants_csv"], key="participants_csv_input")
-    form_data["participants_csv"] = csv
+    csv = st.text_input("Participants (comma separated)", value=st.session_state["ui_equal_csv"], key="ui_equal_csv")
     participants_list = [p.strip() for p in csv.split(",") if p.strip()]
 else:
-    num_custom = st.number_input("How many participants?", min_value=1, step=1, key="num_custom_input", value=len(form_data["participants_custom"]) or 1)
+    # make sure num_custom is stored and used to render inputs
+    num_custom = st.number_input("How many participants?", min_value=1, step=1, value=st.session_state.get("ui_num_custom", 1), key="ui_num_custom")
+    # render dynamic participant name/share inputs
     for i in range(int(num_custom)):
-        name = st.text_input(f"Participant {i+1} name", key=f"name_{i}")
-        share = st.number_input(f"Amount for {name or f'P{i+1}'}", min_value=0.0, format="%.2f", key=f"share_{i}")
+        name_key = f"custom_name_{i}"
+        share_key = f"custom_share_{i}"
+        if name_key not in st.session_state:
+            st.session_state[name_key] = ""
+        if share_key not in st.session_state:
+            st.session_state[share_key] = 0.0
+
+        name = st.text_input(f"Participant {i+1} name", value=st.session_state[name_key], key=name_key)
+        share = st.number_input(f"Amount for {name or f'P{i+1}'}", min_value=0.0, format="%.2f", value=st.session_state[share_key], key=share_key)
         if name:
             participants[name.strip()] = float(share)
-    form_data["participants_custom"] = participants
-    participants_list = list(participants.keys())
 
-# submit button (separate to keep UI reactive)
+# Add Expense button (reads current widget state)
 if st.button("➕ Add Expense"):
-    if not payer or amount <= 0:
+    # validation
+    if not payer or float(amount) <= 0:
         st.warning("⚠️ Please fill in payer and positive amount.")
     else:
         if split_type == "Equal" and not participants_list:
@@ -246,27 +262,37 @@ if st.button("➕ Add Expense"):
         elif split_type == "Custom" and not participants:
             st.warning("⚠️ Please fill in participant names and amounts for Custom split.")
         else:
+            # build expense data
             expense = {
                 "payer": payer.strip(),
                 "amount": float(amount),
                 "description": description.strip(),
                 "participants": participants if split_type == "Custom" else participants_list
             }
+
+            # append, save, feedback
             st.session_state.expenses.append(expense)
             save_expenses(filename, st.session_state.expenses)
             st.success("✅ Expense added!")
 
-            # reset form
-            st.session_state.form_data = {
-                "payer": "",
-                "amount": 0.0,
-                "description": "",
-                "split_type": "Equal",
-                "participants_csv": "",
-                "participants_custom": {}
-            }
-            st.rerun()
-
+            # clear UI values (reset keys)
+            st.session_state["ui_payer"] = ""
+            st.session_state["ui_amount"] = 0.0
+            st.session_state["ui_description"] = ""
+            st.session_state["ui_split"] = "Equal"
+            st.session_state["ui_equal_csv"] = ""
+            st.session_state["ui_num_custom"] = 1
+            # remove custom dynamic keys if present
+            # (we'll remove up to 20 to avoid complicated bookkeeping; adjust as needed)
+            for i in range(0, 20):
+                nk = f"custom_name_{i}"
+                sk = f"custom_share_{i}"
+                if nk in st.session_state:
+                    del st.session_state[nk]
+                if sk in st.session_state:
+                    del st.session_state[sk]
+            # small rerun so UI shows cleared state
+            st.experimental_rerun()
 
 # ------------------------
 # Show balances
@@ -296,7 +322,6 @@ if st.button("📊 Show Final Balances"):
                 st.markdown(f"➡️ **{debtor} → {creditor}: {payment:.2f}**")
         else:
             st.write("✅ Everyone is settled up!")
-
 
 # 🔽 Download JSON / CSV
 st.download_button(
@@ -330,11 +355,11 @@ if st.session_state.confirm_clear:
             st.session_state.expenses = []             # clear in-memory list
             st.session_state.cleared = True            # flag success
             st.session_state.confirm_clear = False
-            st.rerun()
+            st.experimental_rerun()
     with col2:
         if st.button("❌ Cancel"):
             st.session_state.confirm_clear = False
-            st.rerun()
+            st.experimental_rerun()
 else:
     if st.button("🗑️ Clear All Expenses"):
         st.session_state.confirm_clear = True
@@ -343,4 +368,3 @@ else:
 if st.session_state.get("cleared", False):
     st.success("✅ All expenses cleared!")
     st.session_state.cleared = False
-
