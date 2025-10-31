@@ -223,10 +223,21 @@ if uploaded_file is not None:
 # ------------------------
 st.subheader("➕ Add Expense")
 
+# Safe post-submit clearing
+if st.session_state.get("pending_clear", False):
+    # clear UI + dynamic fields safely before widgets render
+    for k in list(st.session_state.keys()):
+        if k.startswith("ui_") or k.startswith("custom_"):
+            del st.session_state[k]
+    st.session_state["pending_clear"] = False
+    st.experimental_rerun()
+
 payer = st.text_input("Who paid?", value=st.session_state["ui_payer"], key="ui_payer")
 amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=st.session_state["ui_amount"], key="ui_amount")
 description = st.text_input("Description?", value=st.session_state["ui_description"], key="ui_description")
-split_type = st.radio("Split type", ["Equal", "Custom"], index=0 if st.session_state["ui_split"] == "Equal" else 1, key="ui_split")
+split_type = st.radio("Split type", ["Equal", "Custom"],
+    index=0 if st.session_state["ui_split"] == "Equal" else 1,
+    key="ui_split")
 
 participants = {}
 participants_list = []
@@ -235,9 +246,8 @@ if split_type == "Equal":
     csv = st.text_input("Participants (comma separated)", value=st.session_state["ui_equal_csv"], key="ui_equal_csv")
     participants_list = [p.strip() for p in csv.split(",") if p.strip()]
 else:
-    # make sure num_custom is stored and used to render inputs
-    num_custom = st.number_input("How many participants?", min_value=1, step=1, value=st.session_state.get("ui_num_custom", 1), key="ui_num_custom")
-    # render dynamic participant name/share inputs
+    num_custom = st.number_input("How many participants?", min_value=1, step=1,
+                                 value=st.session_state.get("ui_num_custom", 1), key="ui_num_custom")
     for i in range(int(num_custom)):
         name_key = f"custom_name_{i}"
         share_key = f"custom_share_{i}"
@@ -247,13 +257,14 @@ else:
             st.session_state[share_key] = 0.0
 
         name = st.text_input(f"Participant {i+1} name", value=st.session_state[name_key], key=name_key)
-        share = st.number_input(f"Amount for {name or f'P{i+1}'}", min_value=0.0, format="%.2f", value=st.session_state[share_key], key=share_key)
+        share = st.number_input(f"Amount for {name or f'P{i+1}'}",
+                                min_value=0.0, format="%.2f",
+                                value=st.session_state[share_key], key=share_key)
         if name:
             participants[name.strip()] = float(share)
 
 # Add Expense button (reads current widget state)
 if st.button("➕ Add Expense"):
-    # validation
     if not payer or float(amount) <= 0:
         st.warning("⚠️ Please fill in payer and positive amount.")
     else:
@@ -262,37 +273,21 @@ if st.button("➕ Add Expense"):
         elif split_type == "Custom" and not participants:
             st.warning("⚠️ Please fill in participant names and amounts for Custom split.")
         else:
-            # build expense data
             expense = {
                 "payer": payer.strip(),
                 "amount": float(amount),
                 "description": description.strip(),
                 "participants": participants if split_type == "Custom" else participants_list
             }
-
-            # append, save, feedback
             st.session_state.expenses.append(expense)
             save_expenses(filename, st.session_state.expenses)
             st.success("✅ Expense added!")
 
-            # clear UI values (reset keys)
-            st.session_state["ui_payer"] = ""
-            st.session_state["ui_amount"] = 0.0
-            st.session_state["ui_description"] = ""
-            st.session_state["ui_split"] = "Equal"
-            st.session_state["ui_equal_csv"] = ""
-            st.session_state["ui_num_custom"] = 1
-            # remove custom dynamic keys if present
-            # (we'll remove up to 20 to avoid complicated bookkeeping; adjust as needed)
-            for i in range(0, 20):
-                nk = f"custom_name_{i}"
-                sk = f"custom_share_{i}"
-                if nk in st.session_state:
-                    del st.session_state[nk]
-                if sk in st.session_state:
-                    del st.session_state[sk]
-            # small rerun so UI shows cleared state
+            # Instead of clearing immediately (causing StreamlitAPIException),
+            # we flag for clearing next run.
+            st.session_state["pending_clear"] = True
             st.experimental_rerun()
+
 
 # ------------------------
 # Show balances
