@@ -230,7 +230,7 @@ if st.session_state.get("pending_clear", False):
         if k.startswith("ui_") or k.startswith("custom_"):
             del st.session_state[k]
     st.session_state["pending_clear"] = False
-    st.experimental_rerun()
+    st.rerun()
 
 payer = st.text_input("Who paid?", value=st.session_state["ui_payer"], key="ui_payer")
 amount = st.number_input("How much?", min_value=0.0, format="%.2f", value=st.session_state["ui_amount"], key="ui_amount")
@@ -286,7 +286,7 @@ if st.button("➕ Add Expense"):
             # Instead of clearing immediately (causing StreamlitAPIException),
             # we flag for clearing next run.
             st.session_state["pending_clear"] = True
-            st.experimental_rerun()
+            st.rerun()
 
 
 # ------------------------
@@ -350,11 +350,11 @@ if st.session_state.confirm_clear:
             st.session_state.expenses = []             # clear in-memory list
             st.session_state.cleared = True            # flag success
             st.session_state.confirm_clear = False
-            st.experimental_rerun()
+            st.rerun()
     with col2:
         if st.button("❌ Cancel"):
             st.session_state.confirm_clear = False
-            st.experimental_rerun()
+            st.rerun()
 else:
     if st.button("🗑️ Clear All Expenses"):
         st.session_state.confirm_clear = True
