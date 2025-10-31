@@ -180,8 +180,17 @@ if uploaded_file is not None:
     st.session_state.expenses = expenses
     st.success("✅ Expenses loaded from uploaded file!")
 
+# ----------------------------------------
+# 🧾 Ensure expenses are loaded in session
+# ----------------------------------------
+if "expenses" not in st.session_state:
+    st.session_state.expenses = load_expenses(filename)
+
+# ----------------------------------------
 # ➕ Add expense section
+# ----------------------------------------
 st.subheader("➕ Add Expense")
+
 payer = st.text_input("Who paid?")
 amount = st.number_input("How much?", min_value=0.0, format="%.2f")
 description = st.text_input("Description?")
@@ -191,8 +200,8 @@ participants = {}
 participants_list = []
 
 if split_type == "Equal":
-    participants_list = st.text_input("Participants (comma separated)").split(",")
-    participants_list = [p.strip() for p in participants_list if p.strip()]
+    participants_input = st.text_input("Participants (comma separated)")
+    participants_list = [p.strip() for p in participants_input.split(",") if p.strip()]
 else:
     num_custom = st.number_input("How many participants?", min_value=1, step=1)
     for i in range(int(num_custom)):
@@ -201,16 +210,36 @@ else:
         if name:
             participants[name] = share
 
-if st.button("Add Expense"):
+# ----------------------------------------
+# 💾 Add button logic
+# ----------------------------------------
+if st.button("➕ Add Expense"):
     if payer and amount > 0:
-        if split_type == "Equal":
-            expense = {"payer": payer, "amount": amount, "description": description, "participants": participants_list}
+        if split_type == "Equal" and participants_list:
+            expense = {
+                "payer": payer.strip(),
+                "amount": float(amount),
+                "description": description.strip(),
+                "participants": participants_list
+            }
+        elif split_type == "Custom" and participants:
+            expense = {
+                "payer": payer.strip(),
+                "amount": float(amount),
+                "description": description.strip(),
+                "participants": participants
+            }
         else:
-            expense = {"payer": payer, "amount": amount, "description": description, "participants": participants}
+            st.warning("⚠️ Please fill in participants before adding.")
+            st.stop()
 
         st.session_state.expenses.append(expense)
         save_expenses(filename, st.session_state.expenses)
         st.success("✅ Expense added!")
+        st.rerun()  # <--- ensures UI refreshes and clears inputs
+    else:
+        st.warning("⚠️ Please fill in all required fields before adding.")
+
 
 # 📊 Show balances
 if st.button("📊 Show Final Balances"):
