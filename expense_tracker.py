@@ -255,26 +255,33 @@ if st.session_state.expenses:
 # -------------------------------
 # Clear Expenses with confirmation
 # -------------------------------
+st.markdown("---")
 st.subheader("⚠️ Danger Zone")
-
 if "confirm_clear" not in st.session_state:
     st.session_state.confirm_clear = False
 
-if not st.session_state.confirm_clear:
-    if st.button("🗑️ Clear All Expenses"):
-        st.session_state.confirm_clear = True
-        st.rerun()
-else:
-    st.warning("Are you sure? This will delete ALL expenses and cannot be undone.")
+# Show the clear confirmation if triggered
+if st.session_state.confirm_clear:
+    st.warning("Are you sure you want to clear ALL expenses? This action cannot be undone.")
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("✅ Yes, clear everything"):
-            clear_expenses(filename)
-            st.session_state.expenses = []
-            st.success("All expenses cleared!")
+            clear_expenses(filename)                   # clear JSON file
+            st.session_state.expenses = []             # clear in-memory list
+            st.session_state.cleared = True            # flag success
             st.session_state.confirm_clear = False
             st.rerun()
     with col2:
         if st.button("❌ Cancel"):
             st.session_state.confirm_clear = False
             st.rerun()
+else:
+    if st.button("🗑️ Clear All Expenses"):
+        st.session_state.confirm_clear = True
+
+# Show success message after rerun (once)
+if st.session_state.get("cleared", False):
+    st.success("✅ All expenses cleared!")
+    st.session_state.cleared = False
+
